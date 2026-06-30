@@ -1,0 +1,69 @@
+name: Release
+
+# Publishes @vorionsys/mcp-server to npm with Sigstore/SLSA provenance via
+# tokenless OIDC trusted publishing — no NPM_TOKEN stored anywhere.
+#
+# Prerequisite: configure a trusted publisher for @vorionsys/mcp-server on
+# npmjs.com (package Settings -> Publishing access -> GitHub Actions:
+#   org vorionsys, repo mcp-server, workflow release.yml, environment blank).
+#
+# To cut a release: bump version in package.json via PR -> merge to main ->
+# git tag -a vX.Y.Z <sha> && git push origin vX.Y.Z
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write   # required for npm provenance (tokenless OIDC)
+
+jobs:
+  publish:
+    name: Build, gate, publish @vorionsys/mcp-server
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Skip if version already on the registry
+        id: check
+        run: |
+          PKG=$(node -p "require('./package.json').name")
+          VER=$(node -p "require('./package.json').version")
+          if [ -n "$(npm view "$PKG@$VER" version 2>/dev/null)" ]; then
+            echo "$PKG@$VER already published — skipping (idempotent re-run)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update npm (trusted publishing requires npm >= 11.5.1)
+        if: steps.check.outputs.skip != 'true'
+        run: npm install -g npm@latest
+
+      - name: Install
+        if: steps.check.outputs.skip != 'true'
+        run: npm ci
+
+      - name: Gates
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          npm run typecheck
+          npm run build
+          npm test
+
+      - name: Verify package contents
+        if: steps.check.outputs.skip != 'true'
+        run: npm pack --dry-run
+
+      - name: Publish (tokenless OIDC, provenance)
+        if: steps.check.outputs.skip != 'true'
+        run: npm publish --provenance --access public

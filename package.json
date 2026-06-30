@@ -1,7 +1,7 @@
 {
   "name": "@vorionsys/mcp-server",
   "version": "0.3.0",
-  "description": "MCP server for Vorion AI governance — trust-gated tool execution, proof logging, tier lookup, and remote Cognigate Runtime tools",
+  "description": "MCP server for Vorion audit and trust primitives — pre-flight trust checks for tool execution, proof logging, tier lookup, and remote Cognigate Runtime tools",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -53,6 +53,9 @@
   ],
   "author": "Vorion LLC <team@vorion.org>",
   "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/voriongit/mcp-server.git"

@@ -3,9 +3,9 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org)
 
-**Model Context Protocol server exposing Vorion AI governance — local trust scoring, proof logging, and optional remote Cognigate Runtime tools.**
+**Model Context Protocol server exposing Vorion audit and trust primitives — local trust scoring, proof logging, and remote Cognigate Runtime tools.**
 
-This server lets MCP clients (Claude Desktop, Cursor, IDEs, agent frameworks) call Vorion governance primitives directly: check an agent's trust tier, record behavioral signals, gate actions by required tier, log proof-chained decisions, and — when configured with a deployed Cognigate Runtime endpoint — submit canary probes, tail tenant audit streams, and run health checks against a live runtime.
+This server lets MCP clients (Claude Desktop, Cursor, IDEs, agent frameworks) call Vorion audit and trust primitives directly: check an agent's trust tier, record behavioral signals, run pre-flight tier checks for actions, log proof-chained decisions, and — when configured with a deployed Cognigate Runtime endpoint — submit canary probes, tail tenant audit streams, and perform health checks against a live runtime. Pre-flight checks return a decision; honoring that decision is up to the calling client.
 
 > BASIS is to AI-agent governance what OAuth is to delegated authorization — an open standard so an agent trusted by one system can be evaluated by another.
 
