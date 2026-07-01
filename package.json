@@ -58,10 +58,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/voriongit/mcp-server.git"
+    "url": "git+https://github.com/vorionsys/mcp-server.git"
   },
   "bugs": {
-    "url": "https://github.com/voriongit/mcp-server/issues"
+    "url": "https://github.com/vorionsys/mcp-server/issues"
   },
   "homepage": "https://vorion.org",
   "engines": {
