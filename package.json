@@ -1,6 +1,6 @@
 {
   "name": "@vorionsys/mcp-server",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "MCP server for Vorion audit and trust primitives — pre-flight trust checks for tool execution, proof logging, tier lookup, and remote Cognigate Runtime tools",
   "type": "module",
   "main": "dist/index.js",
