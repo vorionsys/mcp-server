@@ -19,7 +19,7 @@ The published npm package is withdrawn (see below), so install from this repo:
 
 ```bash
 # Clone, install, build — then the stdio entrypoint is dist/index.js
-git clone https://github.com/voriongit/mcp-server.git && cd mcp-server && npm install && npm run build
+git clone https://github.com/vorionsys/mcp-server.git && cd mcp-server && npm install && npm run build
 ```
 
 The build produces an executable stdio server at `dist/index.js` (the package also exposes it as a `vorion-mcp` bin). To run it directly once built:
@@ -194,7 +194,7 @@ npm run dev
 
 This package was extracted from the Vorion monorepo at commit `3d7ed92d` (April 20 2026 — `feat(mcp-server): add remote Cognigate Runtime tools (v0.3.0)`).
 
-The remote-runtime work was originally captured in the now-superseded PR [voriongit/vorion#137](https://github.com/voriongit/vorion/pull/137). That PR is closed in favor of this standalone repo per founder direction (Apr 24 2026).
+The remote-runtime work was originally captured in a now-superseded PR in the private monorepo (voriongit/vorion#137). That PR is closed in favor of this standalone repo per founder direction (Apr 24 2026).
 
 License normalized from `UNLICENSED` to **Apache-2.0** at extraction time.
 
@@ -212,4 +212,4 @@ Copyright 2026 Vorion LLC. See [NOTICE](./NOTICE) for attribution.
 
 - **Vorion:** https://vorion.org
 - **BASIS specification:** https://github.com/voriongit/basis-spec-docs
-- **Issues:** https://github.com/voriongit/mcp-server/issues
+- **Issues:** https://github.com/vorionsys/mcp-server/issues
