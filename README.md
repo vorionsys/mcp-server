@@ -3,112 +3,134 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org)
 
-**Model Context Protocol server exposing Vorion audit and trust primitives — local trust scoring, proof logging, and remote Cognigate Runtime tools.**
+Those two shields are static images. They repeat the Apache-2.0 `LICENSE` and the `engines.node` range (`>=20`). They are not CI, coverage, or conformance badges. This repo has no such badge. GitHub Actions (`.github/workflows/ci.yml`) typechecks, builds, and runs `npm test` on Node 22 for pushes and pull requests to `main`.
 
-This server lets MCP clients (Claude Desktop, Cursor, IDEs, agent frameworks) call Vorion audit and trust primitives directly: check an agent's trust tier, record behavioral signals, run pre-flight tier checks for actions, log proof-chained decisions, and — when configured with a deployed Cognigate Runtime endpoint — submit canary probes, tail tenant audit streams, and perform health checks against a live runtime. Pre-flight checks return a decision; honoring that decision is up to the calling client.
+**MCP server that exposes ten Vorion tools over stdio: five local in-memory trust helpers, and five remote Cognigate calls that are inert until you set an endpoint.**
+
+> **Status:** Published on npm as `@vorionsys/mcp-server@0.3.2` (latest, not deprecated; the process still reports MCP server version `0.1.0`). Local stdio tools boot and score in memory via `@vorionsys/sdk@1.0.1` (agents start at 500 / T3; success +2; failure −20). Remote Cognigate tools ship but have not been run against a live runtime, no named MCP client is evidenced in this repo, and `npm test` is 4 passed / 0 failed (tool-definition and tier-table shape only).
+
+This server registers ten tools and two resources on a stdio MCP transport. The five local tools look up or adjust an in-process score and append to an in-memory proof log. The five remote tools are always registered; without both `VORION_API_URL` and `VORION_API_KEY` they return an error and do not open a socket. Nothing here enforces a decision on the caller's OS or network. A pre-flight result is data for the client.
 
 > BASIS is to AI-agent governance what OAuth is to delegated authorization — an open standard so an agent trusted by one system can be evaluated by another.
 
-> **Status: source-available / reference use.** This repository is the canonical home for the Vorion MCP server. The npm package `@vorionsys/mcp-server` and its runtime dependencies are currently **withdrawn pending IP review** (see [Install / current status](#install--current-status)). Use it as a reference for how a governance layer is exposed over MCP, and as the source you build from once the dependency chain is published.
+That blockquote is the project's description of BASIS. The behavior of this server is the sections below.
 
 ---
 
-## Quick start (one command to clone + build)
+## Quick start
 
-The published npm package is withdrawn (see below), so install from this repo:
+`@vorionsys/mcp-server@0.3.2` is the npm `latest` dist-tag and is not deprecated. Checked on 2026-10-30: `@0.1.0` and `@0.2.0` are deprecated with `Package withdrawn pending IP review. Do not use.` `@0.3.0` and `@0.3.1` are not marked deprecated; they depend on `@vorionsys/sdk@^0.3.1`. This tree and the `0.3.2` publish depend on `@vorionsys/sdk@^1.0.1`.
+
+From the registry (this resolves `@vorionsys/proof-plane` to 0.1.5, which is not deprecated):
 
 ```bash
-# Clone, install, build — then the stdio entrypoint is dist/index.js
-git clone https://github.com/vorionsys/mcp-server.git && cd mcp-server && npm install && npm run build
+npm install @vorionsys/mcp-server@0.3.2
+npx -y @vorionsys/mcp-server@0.3.2
 ```
 
-The build produces an executable stdio server at `dist/index.js` (the package also exposes it as a `vorion-mcp` bin). To run it directly once built:
+From this repository (the lockfile installs `@vorionsys/proof-plane@0.1.4`):
 
 ```bash
+git clone https://github.com/vorionsys/mcp-server.git && cd mcp-server && npm ci && npm run build
 node dist/index.js
 ```
 
-Or run from source without building (uses `tsx`):
+`dist/index.js` is the stdio entrypoint. `package.json` also exposes it as the `vorion-mcp` bin, and the compiled file keeps the `#!/usr/bin/env node` shebang. `npm run dev` is `tsx src/index.ts`.
 
-```bash
-npm run dev
-```
+The process speaks newline-delimited JSON-RPC on stdin/stdout. It does not listen on a port. A bare `node dist/index.js` waits for stdin; it does not print a prompt. This audit's successful runs wrote MCP frames to stdout and nothing to stderr.
 
-The server speaks the Model Context Protocol over **stdio** — it does not print to stdout except MCP frames, and it does not open a port. It is meant to be launched by an MCP client (see [Use with Claude Desktop](#use-with-claude-desktop)), not run interactively.
+On 2026-10-30 a throwaway install of the published tarball (`@vorionsys/sdk@1.0.1`, `@vorionsys/proof-plane@0.1.5`) answered `initialize`, `tools/list` (10 tools), and `vorion_check_trust`. The same three calls against this repo after `npm ci` and `npm run build` (proof-plane locked at 0.1.4) did too. The published package's `gitHead` is `ad182ce`. The next commit in this repo (`b0b6c04`) only overrides `@hono/node-server` in the lockfile; `src/` does not import that module. This README is a further docs change. Neither is what `npm install @vorionsys/mcp-server@0.3.2` downloads.
 
-> Heads-up before you run it: a clean public install does not boot yet. The runtime depends on `@vorionsys/sdk`, which pulls a chain of `@vorionsys/*` packages that are withdrawn pending IP review — so the server currently exits at startup with `ERR_MODULE_NOT_FOUND`. See [Troubleshooting](#troubleshooting) for exactly what you'll see and why.
+`npm ci` in this repo prints `Package withdrawn pending IP review. Do not use.` That string is the stale `deprecated` field stored in `package-lock.json` for `@vorionsys/proof-plane@0.1.4`. The live registry text for 0.1.4, from `npm view @vorionsys/proof-plane@0.1.4 deprecated` on the same day, is: `Not published as a standalone package — Vorion's trust engine is delivered via the hosted platform. See https://vorion.org`. `@vorionsys/proof-plane@0.1.5` is not deprecated. `@vorionsys/sdk@1.0.1` is not deprecated.
 
 ---
 
-## What trust signals you get
+## What the local tools actually do
 
-When an MCP client wires this server in, your agent's tool calls can be governed instead of blindly executed. In practice you get:
+Wired to an MCP client, the local tools return JSON text. They do not run the action you name.
 
-- **A trust score and tier per agent** (`0–1000`, mapped to tiers `T0`–`T7`) so a client can decide how much autonomy an agent has earned — not just whether a single call looks safe.
-- **A pre-flight allow/deny** (`vorion_gate_action` / `vorion_execute_governed`) that checks an agent's tier against the risk of an action *before* it runs.
-- **Behavioral feedback that moves the score** — successes raise trust, failures lower it, and higher-tier agents are penalized more for failures (penalty formula `P(T) = 3 + T`).
-- **A hash-chained proof log** of every ALLOW/DENY decision, so the reasoning behind a governed action is auditable after the fact.
-- **(Optional, remote) tenant + canary visibility** against a deployed Cognigate Runtime: who an API key resolves to, a tail of the hash-chained audit stream, and a place to submit canary-probe outcomes.
+- **Score and tier.** `vorion_check_trust` registers the agent on first use (`capabilities: ['*']`, `observationTier: 'GRAY_BOX'`) and returns the SDK's in-memory score. With `@vorionsys/sdk@1.0.1` in local mode, a new agent starts at **500**, tier **3** (`Monitored`), observation tier **GRAY_BOX**. The documented bands in `src/tools.ts` are T0–T7 over 0–1000. The same file's `initialScore: 0` does not match the SDK, which starts at 500.
+- **Signals.** `vorion_record_signal` accepts `behavioral.success`, `behavioral.failure`, `compliance.pass`, and `compliance.fail`. Success and compliance-pass call `reportSuccess` (**+2**, capped at 1000). Failure and compliance-fail call `reportFailure` (**−20**, floored at 0). The numeric `value` argument is copied into the tool result and is not passed to the SDK. The delta does not depend on tier. The formula `P(T) = 3 + T` appears only as a string on the static `vorion://tiers` document. This server does not apply it.
+- **Pre-flight.** `vorion_gate_action` compares the agent's current tier number to `requiredTier` and returns `allowed` plus a reason. It does not record a signal.
+- **Proof log.** `vorion_log_proof` appends one event to the default in-memory store from `@vorionsys/proof-plane` (`createProofPlane` with no custom store). That library hashes the event (`eventHash`, `previousHash`). Signatures are off (`enableSignatures: false`). The tool result's `proofHash` is `event.hash ?? event.eventId`. The stored event has no `hash` field, so the value returned to the client is the event id (a UUID), not `eventHash`. The log dies with the process.
+- **Combined call.** `vorion_execute_governed` maps risk to a minimum tier (`READ`/`LOW` = 0, `MEDIUM` = 2, `HIGH` = 4, `CRITICAL` = 5), then records a success signal if the tier check passes or a failure signal if it does not, then appends a proof event. It does not execute `action`. An allow still moves the score by +2.
 
-These are governance *signals* for a client to act on — they don't themselves block your OS or network; enforcement is up to the client that consumes them.
+These numbers were read from `@vorionsys/sdk@1.0.1` (`dist/index.js`: `localTrustScore = 500`, `+2`, `-20`) and checked once over stdio on this tree: a new agent scored 500, a success moved it to 502, a failure moved it to 482 (tier 3 → 2).
 
 ---
 
 ## What's in the box
 
-### Local trust-engine tools (run locally, no API key)
+### Local tools (no API key)
 
-| Tool | Purpose |
+| Tool | What this server does |
 |---|---|
-| `vorion_check_trust` | Look up an agent's score (0–1000), tier (T0–T7), and observation tier. |
-| `vorion_record_signal` | Record a behavioral signal (`behavioral.success` / `behavioral.failure` / `compliance.pass` / `compliance.fail`). |
-| `vorion_gate_action` | Pre-flight check: does the agent meet the required tier for an action? |
-| `vorion_log_proof` | Log an ALLOW/DENY decision to the hash-chained proof log. |
-| `vorion_execute_governed` | Gate + record signal + log proof in one call (recommended). |
+| `vorion_check_trust` | Return score, tier number, tier name, observation tier, and capabilities for `agentId`. |
+| `vorion_record_signal` | Apply a flat +2 or −20 from the signal type. `value` is echoed, not applied. |
+| `vorion_gate_action` | Return whether `tierNumber >= requiredTier`. No signal, no proof event. |
+| `vorion_log_proof` | Append an in-memory proof-plane event for `ALLOW` or `DENY`. The returned `proofHash` is the event id. |
+| `vorion_execute_governed` | Gate, then record +2 or −20, then append a proof event. Does not run the action. |
 
-### Remote Cognigate Runtime tools (require `VORION_API_URL` + `VORION_API_KEY`)
+### Remote Cognigate tools (both env vars required)
 
-| Tool | Purpose |
+Registered even when the env vars are unset. No call in this repo hits a live runtime. Paths below are what `src/index.ts` requests; the response body is whatever that URL returns.
+
+| Tool | Request |
 |---|---|
-| `vorion_tenant_whoami` | Resolve the calling API key to its tenant id, role, and capabilities. |
-| `vorion_tenant_list` | List all tenants on the runtime (admin-only). |
-| `vorion_tenant_audit_tail` | Tail recent hash-chained audit events for a tenant. |
-| `vorion_canary_submit` | Submit a canary probe result (pass / fail / ambiguous) to the runtime. |
-| `vorion_health_check` | Hit the configured Cognigate Runtime `/api/v1/health` endpoint. |
+| `vorion_tenant_whoami` | `GET /api/v1/tenants/me` with `Authorization: Bearer <VORION_API_KEY>`. |
+| `vorion_tenant_list` | `GET /api/v1/tenants` with the same bearer header. On HTTP 403 the result adds a hint that the key is not admin. This process does not check a role itself. |
+| `vorion_tenant_audit_tail` | Resolves the tenant (argument, or `GET /api/v1/tenants/me`), then `GET /api/v1/tenants/{id}/audit-events?limit=`. Default limit 20, max 200. The server does not verify a hash chain in the body. |
+| `vorion_canary_submit` | `POST /api/v1/canary` with `outcome` of `pass`, `fail`, or `ambiguous`. |
+| `vorion_health_check` | `GET /api/v1/health` with no bearer header. Both env vars must still be non-empty or the tool never calls `fetch`. |
 
-Without `VORION_API_URL` + `VORION_API_KEY`, the remote tools still appear in the surface but return a structured `not configured` error — the local trust-engine tools are unaffected.
+If either env var is empty, `vorion_tenant_whoami`, `vorion_tenant_list`, `vorion_tenant_audit_tail`, and `vorion_canary_submit` return `Remote Cognigate API is not configured. Set VORION_API_URL and VORION_API_KEY environment variables on the MCP server to enable runtime tools.` `vorion_health_check` returns `VORION_API_URL not set. Remote health check unavailable.` even when the URL is set and only the key is missing. Local tools keep working.
 
 ### Resources
 
-- `vorion://tiers` — the BASIS 8-tier trust model (score ranges, capabilities, penalty multipliers, penalty formula).
-- `vorion://agents/{agentId}/trust` — current trust profile for a specific agent.
+- `vorion://tiers` — static JSON (`TIER_TABLE` in `src/tools.ts`): eight tiers, score bands, a penalty-formula string, and `initialScore: 0`. It is not a live readout of the SDK. This audit did not diff it against the BASIS spec.
+- `vorion://agents/{agentId}/trust` — a resource template. Reading it registers the agent if needed and returns the same trust fields as `vorion_check_trust`, plus `getActionHistory()`.
 
 ---
 
-## Telemetry & privacy
+## Telemetry and privacy
 
-Read the source if you want to confirm any of this — it is all in [`src/index.ts`](./src/index.ts).
+Confirmed against `src/index.ts` and the copies of `@vorionsys/sdk@1.0.1` and `@vorionsys/proof-plane@0.1.4` installed by `npm ci` in this repo. Transitive packages were not audited for phone-home beyond those two call paths.
 
-- **The five local trust-engine tools make no network calls.** They run entirely in-process against the local trust engine and an in-memory proof log. Nothing is sent anywhere.
-- **No analytics, no usage telemetry, no crash reporting.** There is no Sentry/PostHog/"phone-home" code path. The only thing written to a remote service is the explicit remote-tool calls you make.
-- **The only outbound network calls** come from the five *remote* tools, and only when **both** `VORION_API_URL` and `VORION_API_KEY` are set. In that case the server makes HTTPS requests **to the Cognigate Runtime URL you configure** (e.g. your own deployment), sending your `VORION_API_KEY` as a `Bearer` token and the arguments you passed to the tool. If those env vars are unset, no outbound request is ever attempted.
-- **The server logs only to stderr**, and only on a fatal startup error. It does not log tool inputs/outputs.
+- **Local tools do not call `fetch`.** The SDK is constructed as `new Vorion({ localMode: true })`, which keeps the score in a `Map` on the process. The proof log uses `createInMemoryEventStore()`. `@vorionsys/proof-plane` depends on `kafkajs` and ships a `KafkaEventStore`; this server never constructs it.
+- **This repository does not import an analytics or crash-reporting client.** There is no Sentry or PostHog import in `src/`.
+- **Outbound HTTP is only the five remote tools, and only when both env vars are non-empty.** The four tenant/canary tools send `Authorization: Bearer <VORION_API_KEY>` to the URL you set (`http` or `https`, whatever scheme is in `VORION_API_URL`). `vorion_health_check` does not send the key. If either variable is empty, those tools return the errors above and do not call `fetch`.
+- **This file's only `console` write is `console.error` in the startup `catch`.** With `enableSignatures: false`, the proof-plane warning about `PROOF_SIGNING_KEY` does not run. The audit's successful stdio sessions produced empty stderr. The server does not log tool arguments.
 
-In short: with no env vars configured, this is a fully local server with no telemetry. Any network traffic is an explicit remote tool call to an endpoint you chose.
-
----
-
-## Install / current status
-
-**Do not `npm install @vorionsys/mcp-server`.** That package — along with its runtime dependencies `@vorionsys/sdk` and `@vorionsys/proof-plane` — is currently **deprecated on npm with the message "withdrawn pending IP review."** Install from this repository instead (see [Quick start](#quick-start-one-command-to-clone--build)).
-
-Because the dependency chain is mid-review, a clean public clone will install and build but will **not yet boot at runtime** (the SDK imports withdrawn private `@vorionsys/*` peers that npm cannot resolve). Treat this repo as **reference / source-available** until those packages are published. See [Troubleshooting](#troubleshooting).
+`src/index.ts` reads only `VORION_API_URL` and `VORION_API_KEY`.
 
 ---
 
-## Use with Claude Desktop
+## Install
 
-Because the npm package is withdrawn, point Claude Desktop at your **locally built** copy rather than `npx`-ing the published package. After running the [Quick start](#quick-start-one-command-to-clone--build), add the following to `claude_desktop_config.json` (use the absolute path to *your* clone's `dist/index.js`):
+Install `@vorionsys/mcp-server@0.3.2` from npm, or build this repo. Do not use `@0.1.0` or `@0.2.0`; those two versions are deprecated with `Package withdrawn pending IP review. Do not use.`
+
+`@vorionsys/sdk@^1.0.1` has an optional peer `@vorionsys/runtime`. It was not installed for the audit, and the server still started. `@vorionsys/sdk@0.3.1` (the dependency of published 0.3.0 and 0.3.1) is a different package: commit `ad182ce` in this repo records that its dist imported `@vorionsys/security` and that `npx` exited with `ERR_MODULE_NOT_FOUND`. That import is not how `@1.0.1` is wired, and it is not what a current `npm install` of `@vorionsys/mcp-server@0.3.2` gets.
+
+---
+
+## Client configuration
+
+No Claude Desktop, Cursor, or other named MCP client session is recorded in this repo. The blocks below are the shape this process expects. This audit launched `node` on `dist/index.js` and spoke JSON-RPC on stdin. It did not launch Claude Desktop, Cursor, or the `npx` shim.
+
+Published package:
+
+```json
+{
+  "mcpServers": {
+    "vorion": {
+      "command": "npx",
+      "args": ["-y", "@vorionsys/mcp-server@0.3.2"]
+    }
+  }
+}
+```
+
+Local build (absolute path to your clone):
 
 ```json
 {
@@ -121,7 +143,7 @@ Because the npm package is withdrawn, point Claude Desktop at your **locally bui
 }
 ```
 
-To enable the **remote Cognigate Runtime tools** (`vorion_tenant_whoami`, `vorion_tenant_list`, `vorion_tenant_audit_tail`, `vorion_canary_submit`, `vorion_health_check`), add the two environment variables, pointing `VORION_API_URL` at *your* runtime deployment:
+Remote tools, pointed at a runtime you operate:
 
 ```json
 {
@@ -138,65 +160,54 @@ To enable the **remote Cognigate Runtime tools** (`vorion_tenant_whoami`, `vorio
 }
 ```
 
-The server is registered under the name `vorion`, so its tools appear as `vorion_*` in the client. `VORION_API_URL` and `VORION_API_KEY` are the only two environment variables the server reads.
+The MCP server object is constructed with `name: 'vorion'`. The tool names it registers already start with `vorion_`. How a client prefixes that server name is up to the client; this repo does not show it.
 
 ---
 
 ## Troubleshooting
 
-The three most common setup failures, in order of likelihood:
+**1. `ERR_MODULE_NOT_FOUND` for `@vorionsys/security` (or `atsf-core`, `a3i`, `runtime`) at startup.**
+That was the failure mode recorded for `@vorionsys/sdk@0.3.1` in commit `ad182ce`. It is not the dependency line in this tree or in published `@vorionsys/mcp-server@0.3.2`, both of which use `@vorionsys/sdk@^1.0.1`. If you still see it, the install is not 0.3.2 (for example an older `npx` resolution, or a leftover `node_modules`). `npm ls @vorionsys/sdk @vorionsys/mcp-server` should show sdk 1.0.x and mcp-server 0.3.2.
 
-**1. `Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@vorionsys/...'` at startup.**
-This is expected today on a clean public install. `@vorionsys/sdk` pulls a chain of `@vorionsys/*` packages (e.g. `atsf-core`, `security`, `a3i`, `runtime`) that are **withdrawn pending IP review** and therefore cannot be resolved from the public npm registry. The build (`npm run build`) succeeds, but `node dist/index.js` exits immediately. There is no public workaround until those packages are published — this is why the repo is currently labeled reference / source-available. If you have access to the Vorion monorepo, install/link those peers there and run from that workspace.
+**2. The client reports `node: command not found`, or Node exits on syntax / `fetch is not defined`.**
+`package.json` sets `"engines": { "node": ">=20.0.0" }`. This audit ran on Node v22.23.4 and did not execute the suite on Node 20. Build with `npm run build` before pointing a client at `dist/index.js`. `src/index.ts` is not a Node entrypoint; use `npm run dev` for the `tsx` path.
 
-**2. The server starts but immediately exits, or your client says "node: command not found" / a syntax error.**
-Check your Node version: `node --version`. This server requires **Node.js >= 20** (it uses native ESM and the global `fetch`). On older Node you'll see module-resolution or `fetch is not defined` errors. Also make sure you ran `npm run build` first — `args` in the Claude Desktop config must point to the compiled `dist/index.js` (or use `npm run dev` for the `tsx` source path), not `src/index.ts` directly.
-
-**3. The remote tools return `Remote Cognigate API is not configured` (or a network error).**
-The five remote tools require **both** `VORION_API_URL` and `VORION_API_KEY` to be set in the server's `env`. If either is missing you'll get a structured `not configured` error — that's by design, and the local tools keep working. If both are set but you get a network error, the URL is unreachable from where the server runs; if you get `403` on `vorion_tenant_list`, your key lacks the admin role. Note this is a **stdio** server: it must be launched by an MCP client (or piped JSON-RPC), not run as an interactive command — a bare `node dist/index.js` in a terminal will just wait silently for stdin.
+**3. A remote tool returns a not-configured error, or a network error.**
+Both `VORION_API_URL` and `VORION_API_KEY` have to be set on the server process. The four tenant/canary tools then say `Remote Cognigate API is not configured`. The health tool says `VORION_API_URL not set` when either variable is missing. A network error means `fetch` could not reach the URL you set. HTTP 403 from `vorion_tenant_list` is passed through with an admin hint. This audit did not call a live Cognigate deployment.
 
 ---
 
 ## Development
 
 ```bash
-# Install dependencies
-npm install
-
-# Build (tsc -> dist/)
-npm run build
-
-# Run tests (vitest)
-npm test
-
-# Typecheck only
-npm run typecheck
-
-# Run from source over stdio (tsx)
-npm run dev
+npm ci
+npm run build      # tsc -> dist/
+npm test           # vitest run
+npm run typecheck  # tsc --noEmit
+npm run dev        # tsx src/index.ts
 ```
+
+`npm test` loads `tests/placeholder.test.ts` only. On 2026-10-30, vitest 4.1.5 reported **4 passed, 0 failed** (1 file). The tests assert that `TOOL_DEFINITIONS` has the ten names and that `TIER_TABLE` has eight tiers and contains the string `P(T) = 3 + T`. They do not start the server, call the SDK, or send HTTP. `npm run typecheck` and `npm run build` also completed with exit code 0 in that same audit.
 
 ---
 
 ## Stack
 
-- **Runtime:** Node.js >= 20, ES modules (`type: module`).
-- **Language:** TypeScript 5.x, strict mode, NodeNext resolution.
-- **MCP SDK:** `@modelcontextprotocol/sdk` ^1.28.
-- **Vorion deps:** `@vorionsys/sdk` ^0.3.1 (local trust engine) and `@vorionsys/proof-plane` ^0.1.4 (hash-chained event log) — **both withdrawn pending IP review on npm**; see [Install / current status](#install--current-status).
-- **Schema validation:** `zod`.
-- **Test runner:** `vitest`.
-- **Transport:** stdio (Claude Desktop, Cursor, etc.). HTTP transport is not implemented.
+- **Runtime:** Node.js `>=20` (`engines`), ES modules (`"type": "module"`). Audit interpreter: v22.23.4. CI workflow: Node 22.
+- **Language:** TypeScript `^5.9.3`, `strict`, `NodeNext` (`tsconfig.json`).
+- **MCP SDK:** `@modelcontextprotocol/sdk` `^1.28.0`. This repo's lockfile resolves 1.29.0. Transport in `src/index.ts` is `StdioServerTransport` only.
+- **Vorion deps:** `@vorionsys/sdk` `^1.0.1` (resolved 1.0.1, not deprecated). `@vorionsys/proof-plane` `^0.1.4` (lockfile 0.1.4, deprecated on the registry; a fresh install of the published server resolved 0.1.5, not deprecated).
+- **Schema:** `zod` `^3.23.0`.
+- **Tests:** `vitest` `^4.1.5`.
+- **Not in this process:** an HTTP MCP transport. `@hono/node-server` is overridden in `package.json` and is not imported by `src/`.
 
 ---
 
 ## Provenance
 
-This package was extracted from the Vorion monorepo at commit `3d7ed92d` (April 20 2026 — `feat(mcp-server): add remote Cognigate Runtime tools (v0.3.0)`).
+`package.json` `repository` points at this GitHub repo, and that is the `origin` of this checkout.
 
-The remote-runtime work was originally captured in a now-superseded PR in the private monorepo (voriongit/vorion#137). That PR is closed in favor of this standalone repo per founder direction (Apr 24 2026).
-
-License normalized from `UNLICENSED` to **Apache-2.0** at extraction time.
+The extraction commit in this repo (`ecf966a`, message `chore: initial extraction of @vorionsys/mcp-server@0.3.0 from monorepo`) records three facts this public history cannot re-check: monorepo commit `3d7ed92d` (April 20 2026, `feat(mcp-server): add remote Cognigate Runtime tools (v0.3.0)`), a private pull request `voriongit/vorion#137`, and a license change from `UNLICENSED` to Apache-2.0 at extraction. `gh` cannot resolve a public repository named `voriongit/vorion`. The license file in this repo is Apache-2.0. The published `0.3.2` tarball's npm `gitHead` is `ad182ce`, not `ecf966a`.
 
 ---
 
@@ -211,5 +222,5 @@ Copyright 2026 Vorion LLC. See [NOTICE](./NOTICE) for attribution.
 ## Links
 
 - **Vorion:** https://vorion.org
-- **BASIS specification:** https://github.com/voriongit/basis-spec-docs
+- **BASIS specification:** https://github.com/Vorion-Labs/basis-spec-docs (the older `voriongit/basis-spec-docs` URL redirects here)
 - **Issues:** https://github.com/vorionsys/mcp-server/issues
